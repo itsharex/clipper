@@ -137,18 +137,3 @@ enigo.key_up(Key::Control);
 ```rust
 use image::{codecs::png::PngEncoder, ColorType, ImageEncoder};
 ```
-
-## 数据库
-
-- 路径: `%APPDATA%\Clipper\clipper.db`
-- 表: `clipboard_history`, `settings`
-
-## 运行命令
-
-```bash
-# 开发模式
-npm run tauri dev
-
-# 打包
-npm run tauri build
-```
