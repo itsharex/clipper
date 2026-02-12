@@ -11,21 +11,6 @@
 
     let { record, oncopy, ondelete, onfavorite, onpin }: Props = $props();
 
-    function formatTime(isoString: string): string {
-        const date = new Date(isoString);
-        const now = new Date();
-        const diff = now.getTime() - date.getTime();
-        const minutes = Math.floor(diff / 60000);
-        const hours = Math.floor(minutes / 60);
-        const days = Math.floor(hours / 24);
-
-        if (minutes < 1) return '刚刚';
-        if (minutes < 60) return `${minutes} 分钟前`;
-        if (hours < 24) return `${hours} 小时前`;
-        if (days < 7) return `${days} 天前`;
-        return date.toLocaleDateString('zh-CN');
-    }
-
     function getTypeLabel(typeStr: string): string {
         const labels: Record<string, string> = {
             text: '文本',
@@ -81,8 +66,7 @@
 >
     <div class="item-header">
         <span class="item-type">{getTypeLabel(record.content_type)}</span>
-        <span class="item-time">{formatTime(record.created_at)}</span>
-        {#if record.source_app}
+        {#if record.source_app && record.source_app !== 'Unknown'}
             <span class="item-source">{record.source_app}</span>
         {/if}
     </div>
@@ -164,10 +148,6 @@
         font-weight: 500;
     }
 
-    .item-time {
-        color: var(--text-tertiary);
-    }
-
     .item-source {
         color: var(--text-tertiary);
         overflow: hidden;
@@ -200,7 +180,7 @@
 
     .delete-btn {
         position: absolute;
-        right: 6px;
+        right: 36px;
         top: 8px;
         display: flex;
         align-items: center;
@@ -213,7 +193,7 @@
         cursor: pointer;
         border-radius: 6px;
         opacity: 0;
-        transition: opacity 0.15s, background-color 0.15s;
+        transition: opacity 0.16s, background-color 0.16s, transform 0.16s;
     }
 
     .pin-btn {
@@ -231,13 +211,13 @@
         cursor: pointer;
         border-radius: 6px;
         opacity: 0;
-        transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+        transition: opacity 0.16s, background-color 0.16s, color 0.16s, transform 0.16s;
         color: var(--text-secondary);
     }
 
     .favorite-btn {
         position: absolute;
-        right: 36px;
+        right: 6px;
         top: 8px;
         display: flex;
         align-items: center;
@@ -250,7 +230,7 @@
         cursor: pointer;
         border-radius: 6px;
         opacity: 0;
-        transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+        transition: opacity 0.16s, background-color 0.16s, color 0.16s, transform 0.16s;
         color: var(--text-secondary);
     }
 
@@ -290,6 +270,7 @@
 
     .delete-btn:hover {
         background: var(--danger-light);
+        transform: translateY(-1px) scale(1.05);
     }
 
     .delete-btn:hover svg {
@@ -305,10 +286,18 @@
     .favorite-btn:hover {
         background: rgba(245, 158, 11, 0.14);
         color: #f59e0b;
+        transform: translateY(-1px) scale(1.05);
     }
 
     .pin-btn:hover {
         background: var(--accent-light);
         color: var(--accent-color);
+        transform: translateY(-1px) scale(1.05);
+    }
+
+    .delete-btn:active,
+    .favorite-btn:active,
+    .pin-btn:active {
+        transform: scale(0.95);
     }
 </style>

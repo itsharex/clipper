@@ -8,6 +8,7 @@ use crate::database::{
     clear_history, get_settings, save_settings,
     get_favorite_history, search_favorite_history, set_record_favorite, set_record_pinned,
     get_all_favorite_history, favorite_exists,
+    clear_non_favorite_history, clear_favorite_history,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -218,6 +219,18 @@ pub fn clear_clipboard_history(_state: State<'_, crate::AppState>) -> Result<(),
 }
 
 #[tauri::command]
+pub fn clear_history_only(_state: State<'_, crate::AppState>) -> Result<(), String> {
+    clear_non_favorite_history().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn clear_favorite_items(_state: State<'_, crate::AppState>) -> Result<(), String> {
+    clear_favorite_history().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn set_record_favorite_state(
     _state: State<'_, crate::AppState>,
     id: i64,
@@ -314,10 +327,19 @@ pub fn save_app_settings(
     let normalized = crate::hotkey::register_hotkey(&app, &settings.hotkey)?;
     let mut updated = settings;
     updated.hotkey = normalized;
+    crate::autostart::set_enabled(&app, updated.auto_start)?;
     save_settings(&updated).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn suspend_auto_hide(_state: State<'_, crate::AppState>, ms: Option<u64>) {
     crate::suspend_main_window_auto_hide(ms.unwrap_or(4000));
+}
+
+#[tauri::command]
+pub fn set_frontend_ready(app: AppHandle, _state: State<'_, crate::AppState>) {
+    crate::mark_frontend_ready();
+    if crate::take_pending_show_near_cursor() {
+        let _ = crate::tray::show_main_window_near_cursor(&app);
+    }
 }

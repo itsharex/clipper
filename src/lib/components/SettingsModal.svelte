@@ -23,8 +23,7 @@
         { value: 'Shift', label: 'Shift' },
         { value: 'Ctrl+Alt', label: 'Ctrl + Alt' },
         { value: 'Ctrl+Shift', label: 'Ctrl + Shift' },
-        { value: 'Alt+Shift', label: 'Alt + Shift' },
-        { value: 'Ctrl+Alt+Shift', label: 'Ctrl + Alt + Shift' }
+        { value: 'Alt+Shift', label: 'Alt + Shift' }
     ] as const;
 
     let draft = $state<Settings>({
@@ -262,8 +261,8 @@
             </div>
 
             <div class="modal-body">
-                <label>
-                    <span>呼出快捷键</span>
+                <div class="field">
+                    <span class="field-label">快捷键</span>
                     <div class="hotkey-row">
                         <select value={hotkeyModifier} oninput={handleHotkeyModifierChange}>
                             {#each modifierOptions as option}
@@ -279,43 +278,53 @@
                             onkeydown={handleHotkeyKeydown}
                         />
                     </div>
-                    <small>示例：Ctrl + Shift + V（点击右侧输入框后按键）</small>
                     {#if hotkeyError}
                         <small class="error">{hotkeyError}</small>
                     {/if}
-                </label>
+                </div>
 
-                <label>
-                    <span>主题</span>
+                <div class="field">
+                    <span class="field-label">主题</span>
                     <select bind:value={draft.theme}>
                         <option value="system">跟随系统</option>
                         <option value="light">浅色</option>
                         <option value="dark">深色</option>
                     </select>
-                </label>
+                </div>
 
-                <label>
-                    <span>历史保留天数</span>
+                <div class="field">
+                    <span class="field-label">记录保留天数</span>
                     <input type="number" min="1" max="3650" bind:value={draft.keep_days} />
-                </label>
+                </div>
 
-                <label>
-                    <span>最大记录数</span>
+                <div class="field">
+                    <span class="field-label">最大记录数</span>
                     <input type="number" min="50" max="10000" step="50" bind:value={draft.max_records} />
-                </label>
+                </div>
 
-                <label>
-                    <span>收藏导入导出</span>
+                <div class="field">
+                    <div class="toggle-row">
+                        <span class="field-label">开机启动</span>
+                        <label class="switch">
+                            <input type="checkbox" bind:checked={draft.auto_start} />
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                    <small>保存后立即生效</small>
+                </div>
+
+                <div class="field">
+                    <span class="field-label">收藏导入导出</span>
                     <div class="transfer-row">
                         <button type="button" class="ghost-btn" onclick={() => onopenimport?.()}>
-                            导入收藏(JSON)
+                            导入
                         </button>
                         <button type="button" class="ghost-btn" onclick={() => onopenexport?.()}>
-                            导出收藏(JSON)
+                            导出
                         </button>
                     </div>
-                    <small>导出时先选择目录，自动生成 JSON 文件；导入为增量模式，自动跳过重复收藏。</small>
-                </label>
+                    <small>文件格式为JSON,导入为增量模式</small>
+                </div>
 
             </div>
 
@@ -381,10 +390,13 @@
         cursor: pointer;
         font-size: 18px;
         line-height: 1;
+        transition: background-color 0.16s, transform 0.16s, box-shadow 0.16s;
     }
 
     .icon-btn:hover {
         background: var(--bg-hover);
+        transform: translateY(-1px) scale(1.05);
+        box-shadow: 0 6px 14px rgba(0, 0, 0, 0.12);
     }
 
     .modal-body {
@@ -398,18 +410,18 @@
         overflow-x: hidden;
     }
 
-    label {
+    .field {
         display: flex;
         flex-direction: column;
         gap: 4px;
     }
 
-    label span {
+    .field-label {
         font-size: 12px;
         color: var(--text-secondary);
     }
 
-    label small {
+    .field small {
         font-size: 10px;
         color: var(--text-tertiary);
         white-space: normal;
@@ -464,6 +476,61 @@
         gap: 6px;
     }
 
+    .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .switch {
+        position: relative;
+        width: 42px;
+        height: 24px;
+        display: inline-flex;
+    }
+
+    .switch input {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        opacity: 0;
+        cursor: pointer;
+    }
+
+    .switch-slider {
+        width: 100%;
+        height: 100%;
+        border-radius: 999px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        transition: background-color 0.16s, border-color 0.16s;
+    }
+
+    .switch-slider::after {
+        content: '';
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+        transition: transform 0.16s;
+    }
+
+    .switch input:checked + .switch-slider {
+        background: var(--accent-color);
+        border-color: var(--accent-color);
+    }
+
+    .switch input:checked + .switch-slider::after {
+        transform: translateX(18px);
+    }
+
     .modal-footer {
         display: flex;
         justify-content: flex-end;
@@ -482,12 +549,27 @@
         color: var(--text-primary);
         cursor: pointer;
         font-size: 13px;
+        transition: transform 0.16s, filter 0.16s, box-shadow 0.16s;
     }
 
     .primary-btn {
         border-color: var(--accent-color);
         background: var(--accent-color);
         color: #fff;
+    }
+
+    .ghost-btn:hover,
+    .primary-btn:hover {
+        transform: translateY(-1px);
+        filter: brightness(0.98);
+        box-shadow: 0 6px 14px rgba(0, 0, 0, 0.12);
+    }
+
+    .icon-btn:active,
+    .ghost-btn:active,
+    .primary-btn:active {
+        transform: scale(0.96);
+        box-shadow: none;
     }
 
     .ghost-btn:disabled,

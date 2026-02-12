@@ -7,15 +7,25 @@ pub const MIN_MENU_WIDTH: i32 = 300;
 pub const MIN_MENU_HEIGHT: i32 = 400;
 
 #[cfg(target_os = "windows")]
+fn legacy_windows_db_path() -> Option<PathBuf> {
+    std::env::var("APPDATA")
+        .ok()
+        .map(|data_dir| PathBuf::from(data_dir).join("Clipper").join(DB_FILE))
+}
+
+#[cfg(target_os = "windows")]
 fn get_db_path() -> PathBuf {
-    if let Ok(data_dir) = std::env::var("APPDATA") {
-        PathBuf::from(data_dir).join("Clipper").join(DB_FILE)
-    } else {
-        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        path.pop();
-        path.push(DB_FILE);
-        path
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            return parent.join(DB_FILE);
+        }
     }
+
+    // Fallback for unusual runtime environments.
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.pop();
+    path.push(DB_FILE);
+    path
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -34,6 +44,18 @@ fn get_db_connection() -> Result<Connection, rusqlite::Error> {
         let _ = std::fs::create_dir_all(parent);
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        // One-time migration from legacy APPDATA location.
+        if !path.exists() {
+            if let Some(old_path) = legacy_windows_db_path() {
+                if old_path.exists() && old_path != path {
+                    let _ = std::fs::copy(old_path, &path);
+                }
+            }
+        }
+    }
+
     Connection::open(path)
 }
 
@@ -48,6 +70,27 @@ fn ensure_settings_columns(conn: &Connection) -> Result<(), rusqlite::Error> {
     if !columns.iter().any(|c| c == "hotkey") {
         conn.execute(
             "ALTER TABLE settings ADD COLUMN hotkey TEXT DEFAULT 'Ctrl+Shift+V'",
+            [],
+        )?;
+    }
+
+    if !columns.iter().any(|c| c == "menu_width") {
+        conn.execute(
+            "ALTER TABLE settings ADD COLUMN menu_width INTEGER DEFAULT 400",
+            [],
+        )?;
+    }
+
+    if !columns.iter().any(|c| c == "menu_height") {
+        conn.execute(
+            "ALTER TABLE settings ADD COLUMN menu_height INTEGER DEFAULT 500",
+            [],
+        )?;
+    }
+
+    if !columns.iter().any(|c| c == "auto_start") {
+        conn.execute(
+            "ALTER TABLE settings ADD COLUMN auto_start INTEGER DEFAULT 0",
             [],
         )?;
     }
@@ -137,14 +180,17 @@ fn apply_retention_policy(conn: &Connection, settings: &Settings) -> Result<(), 
 
     conn.execute(
         "DELETE FROM clipboard_history
-         WHERE julianday(created_at) < julianday('now', ?1)",
+         WHERE COALESCE(is_favorite, 0) = 0
+           AND julianday(created_at) < julianday('now', ?1)",
         params![days_expr],
     )?;
 
     conn.execute(
         "DELETE FROM clipboard_history
-         WHERE id NOT IN (
+         WHERE COALESCE(is_favorite, 0) = 0
+           AND id NOT IN (
             SELECT id FROM clipboard_history
+            WHERE COALESCE(is_favorite, 0) = 0
             ORDER BY created_at DESC, id DESC
             LIMIT ?1
          )",
@@ -497,6 +543,22 @@ pub fn delete_record(id: i64) -> Result<usize, rusqlite::Error> {
 pub fn clear_history() -> Result<usize, rusqlite::Error> {
     let conn = get_db_connection()?;
     conn.execute("DELETE FROM clipboard_history", [])
+}
+
+pub fn clear_non_favorite_history() -> Result<usize, rusqlite::Error> {
+    let conn = get_db_connection()?;
+    conn.execute(
+        "DELETE FROM clipboard_history WHERE COALESCE(is_favorite, 0) = 0",
+        [],
+    )
+}
+
+pub fn clear_favorite_history() -> Result<usize, rusqlite::Error> {
+    let conn = get_db_connection()?;
+    conn.execute(
+        "DELETE FROM clipboard_history WHERE COALESCE(is_favorite, 0) = 1",
+        [],
+    )
 }
 
 pub fn set_record_favorite(id: i64, favorite: bool) -> Result<(), rusqlite::Error> {

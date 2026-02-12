@@ -7,6 +7,14 @@ use arboard::{Clipboard, ImageData};
 use enigo::{Enigo, Key, KeyboardControllable};
 use image::{codecs::png::PngEncoder, ColorType, ImageEncoder, ImageFormat};
 use tauri::{AppHandle, Manager};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::CloseHandle;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::Threading::{
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
+};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
 use crate::models::ClipboardRecord;
 
@@ -223,6 +231,56 @@ pub fn is_url(text: &str) -> bool {
 }
 
 /// 获取来源应用
+#[cfg(target_os = "windows")]
+pub fn get_source_app() -> String {
+    // 使用当前前台窗口的进程名作为来源应用（如 chrome / Code / explorer）。
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_null() {
+            return "Unknown".to_string();
+        }
+
+        let mut pid: u32 = 0;
+        let _ = GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid == 0 {
+            return "Unknown".to_string();
+        }
+
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if process.is_null() {
+            return "Unknown".to_string();
+        }
+
+        let mut buffer = vec![0u16; 1024];
+        let mut size = buffer.len() as u32;
+        let ok = QueryFullProcessImageNameW(
+            process,
+            0 as PROCESS_NAME_FORMAT,
+            buffer.as_mut_ptr(),
+            &mut size,
+        );
+        let _ = CloseHandle(process);
+
+        if ok == 0 || size == 0 {
+            return "Unknown".to_string();
+        }
+
+        let path = String::from_utf16_lossy(&buffer[..size as usize]);
+        let name = std::path::Path::new(&path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Unknown")
+            .trim();
+
+        if name.is_empty() {
+            "Unknown".to_string()
+        } else {
+            name.to_string()
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
 pub fn get_source_app() -> String {
     "Unknown".to_string()
 }
@@ -234,7 +292,19 @@ pub async fn start_monitoring(_app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    let last_signature = std::sync::Mutex::new(Option::<String>::None);
+    // 启动时先记录当前剪贴板基线，避免“程序刚启动就新增一条历史”。
+    let startup_signature = Clipboard::new().ok().and_then(|mut clipboard| {
+        if ENABLE_IMAGE_RECORDING {
+            if let Ok(image) = clipboard.get_image() {
+                return Some(image_signature(image.width, image.height, image.bytes.as_ref()));
+            }
+        }
+        if let Ok(text) = clipboard.get_text() {
+            return Some(format!("text:{}", text));
+        }
+        None
+    });
+    let last_signature = std::sync::Mutex::new(startup_signature);
 
     std::thread::spawn(move || {
         let mut poll_ms: u64 = 500;

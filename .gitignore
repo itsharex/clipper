@@ -9,6 +9,7 @@ node_modules
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 开发计划.md
+学习笔记.md
 clipper.db
 /.claude
 /.vscode

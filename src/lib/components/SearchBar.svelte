@@ -1,11 +1,13 @@
 <script lang="ts">
     interface Props {
         value?: string;
+        placeholder?: string;
         onsubmit?: () => void;
         onchange?: (value: string) => void;
     }
 
-    let { value = $bindable(''), onsubmit, onchange }: Props = $props();
+    let { value = $bindable(''), placeholder = '搜索剪贴板内容...', onsubmit, onchange }: Props = $props();
+    let inputEl: HTMLInputElement | null = null;
 
     function handleInput(e: Event) {
         const target = e.target as HTMLInputElement;
@@ -23,6 +25,10 @@
         value = '';
         onchange?.('');
     }
+
+    export function focusInput() {
+        inputEl?.focus();
+    }
 </script>
 
 <div class="search-bar">
@@ -33,8 +39,9 @@
         </svg>
         <input
             type="text"
-            placeholder="搜索剪贴板内容..."
+            placeholder={placeholder}
             bind:value
+            bind:this={inputEl}
             oninput={handleInput}
             onkeydown={handleKeydown}
             aria-label="搜索"

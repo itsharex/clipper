@@ -30,6 +30,7 @@
     let addFavoriteOpen = $state(false);
     let favoriteInput = $state('');
     let addFavoriteSaving = $state(false);
+    let searchBarRef: { focusInput: () => void } | null = null;
     let settings = $state<Settings>({
         hotkey_modifiers: 0,
         hotkey_key: 0,
@@ -69,11 +70,11 @@
     }
 
     function emptyTitle(): string {
-        return favoritesOnly ? '暂无收藏' : '暂无历史记录';
+        return favoritesOnly ? '暂无收藏' : '暂无记录';
     }
 
     function emptyHint(): string {
-        return favoritesOnly ? '点击记录右侧星标即可收藏常用内容' : '复制内容后会自动记录';
+        return favoritesOnly ? '点击+来添加' : '复制内容以记录';
     }
 
     function sortRecordsByPinnedAndTime(items: ClipboardRecord[]): ClipboardRecord[] {
@@ -179,6 +180,13 @@
         await loadHistory(false);
     }
 
+    function focusSearchInput(delayMs: number = 0) {
+        setTimeout(() => {
+            if (settingsOpen || clearConfirmOpen || addFavoriteOpen || aboutOpen) return;
+            searchBarRef?.focusInput?.();
+        }, delayMs);
+    }
+
     async function loadSettings() {
         try {
             settings = await invoke<Settings>('get_app_settings');
@@ -190,13 +198,14 @@
 
     function saveSettings(nextSettings: Settings) {
         const previous = { ...settings };
-        settingsOpen = false;
         settings = { ...nextSettings };
         applyTheme(settings.theme);
+        settingsOpen = false;
+        focusSearchInput(0);
         void invoke('save_app_settings', { settings: nextSettings })
-            .then(() => {
+            .then(async () => {
             void loadSettings();
-            void loadHistory();
+            await loadHistory();
             })
             .catch((error) => {
                 settings = previous;
@@ -268,6 +277,7 @@
     function closeAddFavoriteDialog() {
         if (addFavoriteSaving) return;
         addFavoriteOpen = false;
+        focusSearchInput(0);
     }
 
     async function submitAddFavorite() {
@@ -280,6 +290,7 @@
             addFavoriteOpen = false;
             favoriteInput = '';
             await loadHistory();
+            focusSearchInput(0);
         } catch (error) {
             console.error('Failed to add custom favorite record:', error);
         } finally {
@@ -291,14 +302,30 @@
         clearConfirmOpen = true;
     }
 
+    function clearConfirmTitle(): string {
+        return favoritesOnly ? '清空收藏' : '清空历史';
+    }
+
+    function clearConfirmHint(): string {
+        return favoritesOnly
+            ? '将删除全部收藏项目'
+            : '将删除全部历史记录';
+    }
+
+    function clearConfirmAction(): string {
+        return favoritesOnly ? '清空' : '清空';
+    }
+
     async function confirmClearAll() {
         try {
-            await invoke('clear_clipboard_history');
+            const command = favoritesOnly ? 'clear_favorite_items' : 'clear_history_only';
+            await invoke(command);
             records = [];
         } catch (error) {
             console.error('Failed to clear history:', error);
         } finally {
             clearConfirmOpen = false;
+            focusSearchInput(0);
         }
     }
 
@@ -306,10 +333,12 @@
         favoritesOnly = !favoritesOnly;
         searchKeyword = '';
         await loadHistory(false);
+        focusSearchInput(0);
     }
 
     function openExportFromSettings() {
         settingsOpen = false;
+        focusSearchInput(0);
         void (async () => {
             try {
                 await invoke('suspend_auto_hide', { ms: 10000 });
@@ -331,6 +360,7 @@
 
     function openImportFromSettings() {
         settingsOpen = false;
+        focusSearchInput(0);
         void (async () => {
             try {
                 await invoke('suspend_auto_hide', { ms: 10000 });
@@ -350,6 +380,11 @@
     }
 
     onMount(() => {
+        void invoke('set_frontend_ready')
+            .catch((error) => {
+                console.error('Failed to notify frontend ready:', error);
+            });
+
         // 监听由后端启动，这里仅负责刷新 UI
         refreshInterval = setInterval(refreshHistory, 900);
         loadSettings();
@@ -374,8 +409,9 @@
         }).catch((error) => {
             console.error('Failed to listen open-about:', error);
         });
-        listen('main-window-opened', () => {
+        listen('main-window-opened', async () => {
             void resetSearchStateOnShow();
+            focusSearchInput(16);
         }).then((unlisten) => {
             unlistenMainWindowOpened = unlisten;
         }).catch((error) => {
@@ -383,6 +419,7 @@
         });
 
         void refreshHistory();
+        focusSearchInput(16);
 
         return () => {
             if (unlistenOpenSettings) {
@@ -405,28 +442,34 @@
     <header class="header">
         <h1>{pageTitle()}</h1>
         <div class="header-actions">
-            {#if !favoritesOnly}
-                <button class="refresh-btn danger" onclick={handleClearAll} aria-label="清空历史">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-                        <path d="M10 11v6M14 11v6"/>
-                    </svg>
-                </button>
-            {/if}
+            <button
+                class="refresh-btn danger"
+                onclick={handleClearAll}
+                aria-label={favoritesOnly ? '清空收藏' : '清空历史'}
+            >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                    <path d="M10 11v6M14 11v6"/>
+                </svg>
+            </button>
+            <button
+                class="refresh-btn add-favorite-btn"
+                onclick={openAddFavoriteDialog}
+                aria-label="添加收藏"
+            >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 5v14M5 12h14"/>
+                </svg>
+            </button>
             <button
                 class="refresh-btn favorite-toggle"
                 class:active={favoritesOnly}
                 onclick={toggleFavoritesView}
-                aria-label={favoritesOnly ? '切换到历史记录' : '切换到收藏'}
+                aria-label={favoritesOnly ? '切换到记录' : '切换到收藏'}
             >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M12 3l2.9 5.88 6.49.95-4.7 4.58 1.11 6.47L12 17.8l-5.8 3.08 1.1-6.47-4.7-4.58 6.5-.95z"/>
-                </svg>
-            </button>
-            <button class="refresh-btn" onclick={openAddFavoriteDialog} aria-label="添加收藏">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M12 5v14M5 12h14"/>
                 </svg>
             </button>
         </div>
@@ -434,7 +477,9 @@
 
     <div class="search-container">
         <SearchBar
+            bind:this={searchBarRef}
             bind:value={searchKeyword}
+            placeholder={`${records.length} 条记录`}
             onchange={handleSearch}
         />
     </div>
@@ -455,13 +500,12 @@
     {#if addFavoriteOpen}
         <div class="confirm-backdrop">
             <div class="confirm-modal" role="dialog" aria-modal="true" aria-label="添加收藏">
-                <h3>添加收藏文本</h3>
-                <p>输入你常用的文本，保存后会直接加入收藏。</p>
+                <h3>添加收藏</h3>
                 <textarea
                     class="favorite-input"
                     bind:value={favoriteInput}
                     rows="4"
-                    placeholder="输入收藏内容..."
+                    placeholder="输入内容..."
                 ></textarea>
                 <div class="confirm-actions">
                     <button class="cancel-btn" onclick={closeAddFavoriteDialog} disabled={addFavoriteSaving}>取消</button>
@@ -479,7 +523,10 @@
         onsave={saveSettings}
         onopenimport={openImportFromSettings}
         onopenexport={openExportFromSettings}
-        onclose={() => (settingsOpen = false)}
+        onclose={() => {
+            settingsOpen = false;
+            focusSearchInput(0);
+        }}
     />
 
     {#if aboutOpen}
@@ -498,11 +545,19 @@
     {#if clearConfirmOpen}
         <div class="confirm-backdrop">
             <div class="confirm-modal" role="alertdialog" aria-modal="true" aria-label="确认清空">
-                <h3>确认清空历史</h3>
-                <p>将删除全部历史记录，且无法撤销。</p>
+                <h3>{clearConfirmTitle()}</h3>
+                <p>{clearConfirmHint()}</p>
                 <div class="confirm-actions">
-                    <button class="cancel-btn" onclick={() => (clearConfirmOpen = false)}>取消</button>
-                    <button class="danger-btn" onclick={confirmClearAll}>清空</button>
+                    <button
+                        class="cancel-btn"
+                        onclick={() => {
+                            clearConfirmOpen = false;
+                            focusSearchInput(0);
+                        }}
+                    >
+                        取消
+                    </button>
+                    <button class="danger-btn" onclick={confirmClearAll}>{clearConfirmAction()}</button>
                 </div>
             </div>
         </div>
@@ -618,11 +673,21 @@
         background: transparent;
         cursor: pointer;
         border-radius: 6px;
-        transition: background-color 0.15s;
+        transition: background-color 0.18s, transform 0.18s, box-shadow 0.18s;
     }
 
     .refresh-btn:hover {
         background: var(--bg-hover);
+        transform: translateY(-1px) scale(1.04);
+        box-shadow: 0 6px 14px rgba(0, 0, 0, 0.1);
+    }
+
+    .add-favorite-btn:hover {
+        background: rgba(37, 99, 235, 0.14);
+    }
+
+    .add-favorite-btn:hover svg {
+        color: var(--accent-color);
     }
 
     .refresh-btn.danger:hover {
@@ -653,6 +718,15 @@
 
     .favorite-toggle.active {
         background: rgba(245, 158, 11, 0.14);
+    }
+
+    .favorite-toggle:hover {
+        background: rgba(245, 158, 11, 0.14);
+    }
+
+    .favorite-toggle:hover svg {
+        color: #f59e0b;
+        fill: rgba(245, 158, 11, 0.22);
     }
 
     .favorite-toggle.active svg {
@@ -730,6 +804,7 @@
         color: var(--text-primary);
         cursor: pointer;
         font-size: 13px;
+        transition: transform 0.16s, filter 0.16s, box-shadow 0.16s;
     }
 
     .danger-btn {
@@ -742,5 +817,21 @@
         border-color: var(--accent-color);
         background: var(--accent-color);
         color: #fff;
+    }
+
+    .cancel-btn:hover,
+    .danger-btn:hover,
+    .primary-btn:hover {
+        transform: translateY(-1px);
+        filter: brightness(0.98);
+        box-shadow: 0 6px 14px rgba(0, 0, 0, 0.12);
+    }
+
+    .refresh-btn:active,
+    .cancel-btn:active,
+    .danger-btn:active,
+    .primary-btn:active {
+        transform: scale(0.96);
+        box-shadow: none;
     }
 </style>

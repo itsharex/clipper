@@ -4,6 +4,7 @@ mod commands;
 mod clipboard;
 mod tray;
 mod hotkey;
+mod autostart;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -15,11 +16,11 @@ use commands::{
     init_db, get_history_records, search_records,
     get_favorite_records, search_favorite_records,
     add_clipboard_record, add_custom_favorite_record,
-    delete_clipboard_record, clear_clipboard_history,
+    delete_clipboard_record, clear_clipboard_history, clear_history_only, clear_favorite_items,
     set_record_favorite_state, set_record_pinned_state,
     export_favorites_json, import_favorites_json,
     export_favorites_to_path, import_favorites_from_path,
-    get_app_settings, save_app_settings, suspend_auto_hide,
+    get_app_settings, save_app_settings, suspend_auto_hide, set_frontend_ready,
 };
 
 static LAST_GEOMETRY_EVENT_MS: AtomicU64 = AtomicU64::new(0);
@@ -27,6 +28,8 @@ static LAST_MAIN_WINDOW_SHOW_MS: AtomicU64 = AtomicU64::new(0);
 static AUTO_HIDE_SUSPEND_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
 static WINDOW_SIZE_SAVE_PENDING: AtomicBool = AtomicBool::new(false);
 static LAST_WINDOW_RESIZE_MS: AtomicU64 = AtomicU64::new(0);
+static FRONTEND_READY: AtomicBool = AtomicBool::new(false);
+static PENDING_SHOW_NEAR_CURSOR: AtomicBool = AtomicBool::new(false);
 static PENDING_WINDOW_SIZE: OnceLock<Mutex<Option<(i32, i32)>>> = OnceLock::new();
 const GEOMETRY_FOCUS_GUARD_MS: u64 = 120;
 const SHOW_GEOMETRY_SUPPRESS_MS: u64 = 260;
@@ -50,6 +53,22 @@ fn should_track_geometry_event() -> bool {
 
 pub fn mark_main_window_shown() {
     LAST_MAIN_WINDOW_SHOW_MS.store(now_ms(), Ordering::SeqCst);
+}
+
+pub fn mark_frontend_ready() {
+    FRONTEND_READY.store(true, Ordering::SeqCst);
+}
+
+pub fn is_frontend_ready() -> bool {
+    FRONTEND_READY.load(Ordering::SeqCst)
+}
+
+pub fn queue_show_near_cursor_on_ready() {
+    PENDING_SHOW_NEAR_CURSOR.store(true, Ordering::SeqCst);
+}
+
+pub fn take_pending_show_near_cursor() -> bool {
+    PENDING_SHOW_NEAR_CURSOR.swap(false, Ordering::SeqCst)
 }
 
 fn auto_hide_is_suspended() -> bool {
@@ -81,6 +100,41 @@ fn cursor_is_near_window(window: &tauri::Window) -> Option<bool> {
     let bottom = position.y as f64 + size.height as f64 + CURSOR_NEAR_WINDOW_MARGIN_PX;
 
     Some(cursor.x >= left && cursor.x <= right && cursor.y >= top && cursor.y <= bottom)
+}
+
+fn clamp_main_window_to_work_area(window: &tauri::Window) {
+    if window.label() != "main" {
+        return;
+    }
+
+    let position = match window.outer_position() {
+        Ok(pos) => pos,
+        Err(_) => return,
+    };
+    let size = match window.outer_size() {
+        Ok(size) => size,
+        Err(_) => return,
+    };
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        return;
+    };
+
+    let work_area = monitor.work_area();
+    let min_x = work_area.position.x;
+    let min_y = work_area.position.y;
+    let max_x = (work_area.position.x + work_area.size.width as i32 - size.width as i32).max(min_x);
+    let max_y = (work_area.position.y + work_area.size.height as i32 - size.height as i32).max(min_y);
+    let clamped_x = position.x.clamp(min_x, max_x);
+    let clamped_y = position.y.clamp(min_y, max_y);
+
+    if clamped_x != position.x || clamped_y != position.y {
+        let _ = window.set_position(tauri::PhysicalPosition::new(clamped_x, clamped_y));
+    }
 }
 
 fn schedule_hide_recheck(window: tauri::Window, delay_ms: u64) {
@@ -152,9 +206,16 @@ pub struct AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    FRONTEND_READY.store(false, Ordering::SeqCst);
+    PENDING_SHOW_NEAR_CURSOR.store(false, Ordering::SeqCst);
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None::<Vec<&str>>,
+        ))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -175,6 +236,8 @@ pub fn run() {
             add_custom_favorite_record,
             delete_clipboard_record,
             clear_clipboard_history,
+            clear_history_only,
+            clear_favorite_items,
             set_record_favorite_state,
             set_record_pinned_state,
             export_favorites_json,
@@ -184,6 +247,7 @@ pub fn run() {
             get_app_settings,
             save_app_settings,
             suspend_auto_hide,
+            set_frontend_ready,
             clipboard::start_monitoring,
             clipboard::stop_monitoring,
             clipboard::check_and_read_clipboard,
@@ -219,6 +283,9 @@ pub fn run() {
             let handle = app.handle();
             tray::create_tray(&handle)?;
             hotkey::register_from_settings_or_default(&handle)?;
+            if let Err(err) = autostart::sync_from_settings(&handle) {
+                eprintln!("failed to sync auto start from settings: {}", err);
+            }
 
             // Start clipboard monitoring automatically
             let monitor_handle = handle.clone();
@@ -242,6 +309,7 @@ pub fn run() {
                 if window.label() == "main" && should_track_geometry_event() {
                     LAST_GEOMETRY_EVENT_MS.store(now_ms(), Ordering::SeqCst);
                 }
+                clamp_main_window_to_work_area(window);
             }
             tauri::WindowEvent::Resized(size) => {
                 if window.label() == "main" && should_track_geometry_event() {
@@ -249,6 +317,7 @@ pub fn run() {
                 }
                 if window.label() == "main" {
                     schedule_window_size_persist(size.width as i32, size.height as i32);
+                    clamp_main_window_to_work_area(window);
                 }
             }
             tauri::WindowEvent::Focused(false) => {

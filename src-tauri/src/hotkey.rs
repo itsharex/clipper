@@ -61,5 +61,9 @@ pub fn register_from_settings_or_default<R: Runtime>(app: &AppHandle<R>) -> Resu
 
 pub fn on_shortcut_triggered<R: Runtime>(app: &AppHandle<R>, shortcut: &Shortcut) {
     eprintln!("shortcut triggered: {}", shortcut);
+    if !crate::is_frontend_ready() {
+        crate::queue_show_near_cursor_on_ready();
+        return;
+    }
     let _ = tray::show_main_window_near_cursor(app);
 }
