@@ -43,6 +43,4 @@ npm run tauri dev
 npm run tauri build
 ```
 
-## 作者
 
-Jiaxin
