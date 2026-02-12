@@ -1,0 +1,314 @@
+<script lang="ts">
+    import type { ClipboardRecord } from '$lib/types';
+
+    interface Props {
+        record: ClipboardRecord;
+        oncopy?: (id: number) => void;
+        ondelete?: (id: number) => void;
+        onfavorite?: (id: number, favorite: boolean) => void;
+        onpin?: (id: number, pinned: boolean) => void;
+    }
+
+    let { record, oncopy, ondelete, onfavorite, onpin }: Props = $props();
+
+    function formatTime(isoString: string): string {
+        const date = new Date(isoString);
+        const now = new Date();
+        const diff = now.getTime() - date.getTime();
+        const minutes = Math.floor(diff / 60000);
+        const hours = Math.floor(minutes / 60);
+        const days = Math.floor(hours / 24);
+
+        if (minutes < 1) return '刚刚';
+        if (minutes < 60) return `${minutes} 分钟前`;
+        if (hours < 24) return `${hours} 小时前`;
+        if (days < 7) return `${days} 天前`;
+        return date.toLocaleDateString('zh-CN');
+    }
+
+    function getTypeLabel(typeStr: string): string {
+        const labels: Record<string, string> = {
+            text: '文本',
+            image: '图片',
+            html: 'HTML',
+            link: '链接'
+        };
+        return labels[typeStr] || typeStr;
+    }
+
+    function handleCopy() {
+        console.log('[clipper] item click', record.id);
+        oncopy?.(record.id);
+    }
+
+    function handleDelete(e: Event) {
+        e.stopPropagation();
+        ondelete?.(record.id);
+    }
+
+    function handleFavorite(e: Event) {
+        e.stopPropagation();
+        onfavorite?.(record.id, !record.is_favorite);
+    }
+
+    function handlePin(e: Event) {
+        e.stopPropagation();
+        onpin?.(record.id, !record.is_pinned);
+    }
+
+    function handleKeydown(e: KeyboardEvent) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            handleCopy();
+        } else if (e.key === 'Delete') {
+            const e2 = e as unknown as { stopPropagation: () => void };
+            e2.stopPropagation = () => {};
+            handleDelete(e as unknown as Event);
+        }
+    }
+
+    function truncateText(text: string, maxLength: number = 100): string {
+        if (text.length <= maxLength) return text;
+        return text.slice(0, maxLength) + '...';
+    }
+</script>
+
+<div
+    class="clipboard-item"
+    role="button"
+    tabindex="0"
+    onclick={handleCopy}
+    onkeydown={handleKeydown}
+>
+    <div class="item-header">
+        <span class="item-type">{getTypeLabel(record.content_type)}</span>
+        <span class="item-time">{formatTime(record.created_at)}</span>
+        {#if record.source_app}
+            <span class="item-source">{record.source_app}</span>
+        {/if}
+    </div>
+    <div class="item-content">
+        {#if record.content_type === 'text' || record.content_type === 'link'}
+            <p class="text-content">{truncateText(record.content)}</p>
+        {:else if record.content_type === 'image'}
+            <div class="image-placeholder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/>
+                    <circle cx="8.5" cy="8.5" r="1.5"/>
+                    <path d="M21 15l-5-5L5 21"/>
+                </svg>
+                <span>图片数据</span>
+            </div>
+        {:else}
+            <p class="text-content">{truncateText(record.content)}</p>
+        {/if}
+    </div>
+    <button class="delete-btn" onclick={handleDelete} aria-label="删除">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+        </svg>
+    </button>
+    <button
+        class="pin-btn"
+        class:active={record.is_pinned}
+        onclick={handlePin}
+        aria-label={record.is_pinned ? '取消置顶' : '置顶'}
+    >
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+            <path d="M14 3l7 7-2 2-2-2-3 3 3 3-2 2-3-3-5 5-2-2 5-5-3-3 2-2 3 3 3-3-2-2z"/>
+        </svg>
+    </button>
+    <button
+        class="favorite-btn"
+        class:active={record.is_favorite}
+        onclick={handleFavorite}
+        aria-label={record.is_favorite ? '取消收藏' : '收藏'}
+    >
+        <svg viewBox="0 0 24 24" stroke-width="2">
+            <path d="M12 3l2.9 5.88 6.49.95-4.7 4.58 1.11 6.47L12 17.8l-5.8 3.08 1.1-6.47-4.7-4.58 6.5-.95z"/>
+        </svg>
+    </button>
+</div>
+
+<style>
+    .clipboard-item {
+        position: relative;
+        padding: 10px 12px 12px 12px;
+        border-bottom: 1px solid var(--border-color);
+        cursor: pointer;
+        transition: background-color 0.15s;
+    }
+
+    .clipboard-item:hover {
+        background: var(--bg-hover);
+    }
+
+    .clipboard-item:focus {
+        outline: none;
+        background: var(--bg-hover);
+    }
+
+    .item-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+        padding-right: 90px;
+        font-size: 11px;
+    }
+
+    .item-type {
+        padding: 2px 6px;
+        background: var(--accent-light);
+        color: var(--accent-color);
+        border-radius: 4px;
+        font-weight: 500;
+    }
+
+    .item-time {
+        color: var(--text-tertiary);
+    }
+
+    .item-source {
+        color: var(--text-tertiary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .item-content {
+        font-size: 13px;
+        color: var(--text-primary);
+        line-height: 1.4;
+        word-break: break-all;
+    }
+
+    .text-content {
+        margin: 0;
+    }
+
+    .image-placeholder {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text-secondary);
+    }
+
+    .image-placeholder svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    .delete-btn {
+        position: absolute;
+        right: 6px;
+        top: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        border-radius: 6px;
+        opacity: 0;
+        transition: opacity 0.15s, background-color 0.15s;
+    }
+
+    .pin-btn {
+        position: absolute;
+        right: 66px;
+        top: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        border-radius: 6px;
+        opacity: 0;
+        transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+        color: var(--text-secondary);
+    }
+
+    .favorite-btn {
+        position: absolute;
+        right: 36px;
+        top: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        border-radius: 6px;
+        opacity: 0;
+        transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+        color: var(--text-secondary);
+    }
+
+    .favorite-btn svg {
+        width: 16px;
+        height: 16px;
+        fill: transparent;
+        stroke: currentColor;
+    }
+
+    .pin-btn svg {
+        width: 16px;
+        height: 16px;
+        stroke: currentColor;
+    }
+
+    .pin-btn.active {
+        opacity: 1;
+        color: var(--accent-color);
+    }
+
+    .favorite-btn.active {
+        opacity: 1;
+        color: #f59e0b;
+    }
+
+    .favorite-btn.active svg {
+        fill: currentColor;
+        stroke: currentColor;
+    }
+
+    .clipboard-item:hover .delete-btn,
+    .clipboard-item:hover .pin-btn,
+    .clipboard-item:hover .favorite-btn {
+        opacity: 1;
+    }
+
+    .delete-btn:hover {
+        background: var(--danger-light);
+    }
+
+    .delete-btn:hover svg {
+        color: var(--danger-color);
+    }
+
+    .delete-btn svg {
+        width: 16px;
+        height: 16px;
+        color: var(--text-secondary);
+    }
+
+    .favorite-btn:hover {
+        background: rgba(245, 158, 11, 0.14);
+        color: #f59e0b;
+    }
+
+    .pin-btn:hover {
+        background: var(--accent-light);
+        color: var(--accent-color);
+    }
+</style>
