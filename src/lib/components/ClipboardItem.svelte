@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { invoke } from '@tauri-apps/api/core';
     import type { ClipboardRecord } from '$lib/types';
 
     interface Props {
@@ -38,6 +39,13 @@
     function handlePin(e: Event) {
         e.stopPropagation();
         onpin?.(record.id, !record.is_pinned);
+    }
+
+    async function handleOpenLink(e: Event) {
+        e.stopPropagation();
+        if (record.content_type === 'link') {
+            await invoke('open_url', { url: record.content });
+        }
     }
 
     function handleKeydown(e: KeyboardEvent) {
@@ -96,10 +104,22 @@
         onclick={handlePin}
         aria-label={record.is_pinned ? '取消置顶' : '置顶'}
     >
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
-            <path d="M14 3l7 7-2 2-2-2-3 3 3 3-2 2-3-3-5 5-2-2 5-5-3-3 2-2 3 3 3-3-2-2z"/>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4.76z"/>
         </svg>
     </button>
+    {#if record.content_type === 'link'}
+        <button
+            class="link-btn"
+            onclick={handleOpenLink}
+            aria-label="在浏览器打开链接"
+        >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+            </svg>
+        </button>
+    {/if}
     <button
         class="favorite-btn"
         class:active={record.is_favorite}
@@ -253,6 +273,40 @@
         color: var(--accent-color);
     }
 
+    .pin-btn.active svg {
+        fill: currentColor;
+    }
+
+    .link-btn {
+        position: absolute;
+        right: 96px;
+        top: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        border-radius: 6px;
+        opacity: 0;
+        transition: opacity 0.16s, background-color 0.16s, color 0.16s, transform 0.16s;
+        color: var(--text-tertiary);
+    }
+
+    .link-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    .link-btn:hover {
+        color: #22c55e;
+        background: rgba(34, 197, 94, 0.15);
+        transform: translateY(-1px) scale(1.05);
+    }
+
     .favorite-btn.active {
         opacity: 1;
         color: #f59e0b;
@@ -265,7 +319,8 @@
 
     .clipboard-item:hover .delete-btn,
     .clipboard-item:hover .pin-btn,
-    .clipboard-item:hover .favorite-btn {
+    .clipboard-item:hover .favorite-btn,
+    .clipboard-item:hover .link-btn {
         opacity: 1;
     }
 

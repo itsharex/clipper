@@ -343,3 +343,8 @@ pub fn set_frontend_ready(app: AppHandle, _state: State<'_, crate::AppState>) {
         let _ = crate::tray::show_main_window_near_cursor(&app);
     }
 }
+
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    opener::open(&url).map_err(|e| e.to_string())
+}

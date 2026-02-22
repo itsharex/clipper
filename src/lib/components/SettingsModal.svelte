@@ -31,7 +31,7 @@
         hotkey_key: 0,
         hotkey: 'Ctrl+Shift+V',
         theme: 'system',
-        keep_days: 30,
+        keep_days: 1,
         max_records: 500,
         menu_width: 400,
         menu_height: 500,
@@ -298,12 +298,14 @@
 
                 <div class="field">
                     <span class="field-label">记录保留天数</span>
-                    <input type="number" min="1" max="3650" bind:value={draft.keep_days} />
+                    <input type="number" min="0" bind:value={draft.keep_days} />
+                    <small>0 代表永久保存</small>
                 </div>
 
                 <div class="field">
                     <span class="field-label">最大记录数</span>
-                    <input type="number" min="50" max="10000" step="50" bind:value={draft.max_records} />
+                    <input type="number" min="0" step="1" bind:value={draft.max_records} />
+                    <small>0 代表无限制</small>
                 </div>
 
                 <div class="field">

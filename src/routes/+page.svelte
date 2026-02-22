@@ -36,14 +36,17 @@
         hotkey_key: 0,
         hotkey: 'Ctrl+Shift+V',
         theme: 'system',
-        keep_days: 30,
+        keep_days: 1,
         max_records: 500,
         menu_width: 400,
         menu_height: 500,
         auto_start: false
     });
 
-    const DEFAULT_LIMIT = 50;
+    // 获取记录数量限制，优先使用设置值，否则默认 500
+    function getLimit(): number {
+        return settings?.max_records || 500;
+    }
 
     function preApplyCachedTheme() {
         if (typeof window === 'undefined') return;
@@ -108,11 +111,11 @@
             if (keyword) {
                 records = await invoke<ClipboardRecord[]>(searchCommand(), {
                     keyword,
-                    limit: DEFAULT_LIMIT
+                    limit: getLimit()
                 });
             } else {
                 records = await invoke<ClipboardRecord[]>(listCommand(), {
-                    limit: DEFAULT_LIMIT,
+                    limit: getLimit(),
                     offset: 0
                 });
             }
@@ -136,7 +139,7 @@
                 return;
             }
             const newRecords = await invoke<ClipboardRecord[]>(listCommand(), {
-                limit: DEFAULT_LIMIT,
+                limit: getLimit(),
                 offset: 0
             });
             // 静默更新，不触发 loading
@@ -154,11 +157,11 @@
                 if (keyword.trim()) {
                     records = await invoke<ClipboardRecord[]>(searchCommand(), {
                         keyword,
-                        limit: DEFAULT_LIMIT
+                        limit: getLimit()
                     });
                 } else {
                     records = await invoke<ClipboardRecord[]>(listCommand(), {
-                        limit: DEFAULT_LIMIT,
+                        limit: getLimit(),
                         offset: 0
                     });
                 }
@@ -591,12 +594,12 @@
     }
 
     :global(:root) {
-        --bg-primary: rgba(255, 255, 255, 0.60);
+        --bg-primary: rgba(255, 255, 255, 0.75);
         --bg-secondary: rgba(248, 249, 250, 0.8);
         --bg-hover: rgba(243, 244, 246, 0.75);
         --text-primary: #000000;
-        --text-secondary: #ffffff;
-        --text-tertiary: #6b7280;
+        --text-secondary: #646b77;
+        --text-tertiary: #646b77;
         --border-color: rgba(209, 213, 219, 0.7);
         --accent-color: #2563eb;
         --accent-light: rgba(37, 99, 235, 0.12);

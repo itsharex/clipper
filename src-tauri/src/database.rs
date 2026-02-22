@@ -132,8 +132,8 @@ fn sanitize_settings(settings: &Settings) -> Settings {
             settings.hotkey.trim().to_string()
         },
         theme: settings.theme.clone(),
-        keep_days: settings.keep_days.max(1),
-        max_records: settings.max_records.max(50),
+        keep_days: settings.keep_days.max(0),
+        max_records: settings.max_records.max(0),
         menu_width: settings.menu_width.max(MIN_MENU_WIDTH),
         menu_height: settings.menu_height.max(MIN_MENU_HEIGHT),
         auto_start: settings.auto_start,
@@ -174,28 +174,40 @@ fn get_settings_from_conn(conn: &Connection) -> Result<Settings, rusqlite::Error
 }
 
 fn apply_retention_policy(conn: &Connection, settings: &Settings) -> Result<(), rusqlite::Error> {
-    let keep_days = settings.keep_days.max(1);
-    let max_records = settings.max_records.max(50);
-    let days_expr = format!("-{} days", keep_days);
+    // 负数视为 0（永久保存/无限制）
+    let keep_days = settings.keep_days.max(0);
+    let max_records = settings.max_records.max(0);
 
-    conn.execute(
-        "DELETE FROM clipboard_history
-         WHERE COALESCE(is_favorite, 0) = 0
-           AND julianday(created_at) < julianday('now', ?1)",
-        params![days_expr],
-    )?;
+    // 0 代表永久保存/无限制，不执行清理
+    if keep_days == 0 && max_records == 0 {
+        return Ok(());
+    }
 
-    conn.execute(
-        "DELETE FROM clipboard_history
-         WHERE COALESCE(is_favorite, 0) = 0
-           AND id NOT IN (
-            SELECT id FROM clipboard_history
-            WHERE COALESCE(is_favorite, 0) = 0
-            ORDER BY created_at DESC, id DESC
-            LIMIT ?1
-         )",
-        params![max_records],
-    )?;
+    // 按天数清理
+    if keep_days > 0 {
+        let days_expr = format!("-{} days", keep_days);
+        conn.execute(
+            "DELETE FROM clipboard_history
+             WHERE COALESCE(is_favorite, 0) = 0
+               AND julianday(created_at) < julianday('now', ?1)",
+            params![days_expr],
+        )?;
+    }
+
+    // 按数量清理
+    if max_records > 0 {
+        conn.execute(
+            "DELETE FROM clipboard_history
+             WHERE COALESCE(is_favorite, 0) = 0
+               AND id NOT IN (
+                SELECT id FROM clipboard_history
+                WHERE COALESCE(is_favorite, 0) = 0
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?1
+             )",
+            params![max_records],
+        )?;
+    }
 
     Ok(())
 }
@@ -226,7 +238,7 @@ pub fn init_database() -> Result<()> {
             hotkey_key INTEGER DEFAULT 0,
             hotkey TEXT DEFAULT 'Ctrl+Shift+V',
             theme TEXT DEFAULT 'system',
-            keep_days INTEGER DEFAULT 30,
+            keep_days INTEGER DEFAULT 1,
             max_records INTEGER DEFAULT 500,
             menu_width INTEGER DEFAULT 400,
             menu_height INTEGER DEFAULT 500,

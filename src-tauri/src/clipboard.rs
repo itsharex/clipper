@@ -170,6 +170,10 @@ fn read_clipboard_record() -> Option<ClipboardRecord> {
         return build_image_record(image.width, image.height, image.bytes.as_ref()).ok();
     }
     if let Ok(text) = clipboard.get_text() {
+        // 过滤掉只包含空白字符的内容
+        if text.trim().is_empty() {
+            return None;
+        }
         return Some(build_text_record(text));
     }
     None
@@ -369,6 +373,10 @@ pub async fn start_monitoring(_app: AppHandle) -> Result<(), String> {
             }
 
             if let Ok(text) = clipboard.get_text() {
+                // 过滤掉只包含空白字符的内容
+                if text.trim().is_empty() {
+                    continue;
+                }
                 let signature = format!("text:{}", text);
                 let should_ignore = IGNORE_NEXT_CHANGE.swap(false, Ordering::SeqCst);
                 let changed = {

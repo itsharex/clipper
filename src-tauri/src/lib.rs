@@ -246,6 +246,7 @@ pub fn run() {
             save_app_settings,
             suspend_auto_hide,
             set_frontend_ready,
+            commands::open_url,
             clipboard::start_monitoring,
             clipboard::stop_monitoring,
             clipboard::check_and_read_clipboard,
