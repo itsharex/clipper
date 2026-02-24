@@ -109,7 +109,7 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     // 创建托盘
     let _tray = TrayIconBuilder::new()
         .icon(icon)
-        .tooltip("Clipper - 历史记录")
+        .tooltip("SnapPaste")
         .menu(&menu)
         .on_menu_event(move |app, event| {
             match event.id.as_ref() {

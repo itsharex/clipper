@@ -277,7 +277,7 @@ pub fn export_favorites_to_path(
     let mut output = PathBuf::from(path);
     if output.is_dir() {
         let filename = format!(
-            "clipper-favorites-{}.json",
+            "snappaste-favorites-{}.json",
             chrono::Local::now().format("%Y%m%d-%H%M%S")
         );
         output.push(filename);

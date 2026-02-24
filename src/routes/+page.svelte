@@ -53,7 +53,7 @@
 
     function preApplyCachedTheme() {
         if (typeof window === 'undefined') return;
-        const cached = window.localStorage.getItem('clipper-theme');
+        const cached = window.localStorage.getItem('snappaste-theme');
         if (cached === 'light' || cached === 'dark') {
             document.documentElement.setAttribute('data-theme', cached);
         } else if (cached === 'system') {
@@ -94,7 +94,7 @@
     function applyTheme(theme: Settings['theme']) {
         const root = document.documentElement;
         if (typeof window !== 'undefined') {
-            window.localStorage.setItem('clipper-theme', theme);
+            window.localStorage.setItem('snappaste-theme', theme);
         }
         if (theme === 'system') {
             // system 主题：移除 data-theme 属性，使用 CSS @media (prefers-color-scheme) 自动检测
@@ -404,7 +404,7 @@
         const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
         const handleThemeChange = () => {
             // 只有当前是系统主题模式时才更新
-            const savedTheme = window.localStorage.getItem('clipper-theme');
+            const savedTheme = window.localStorage.getItem('snappaste-theme');
             if (savedTheme === 'system' || savedTheme === 'auto') {
                 applyTheme('system');
             }
@@ -584,7 +584,7 @@
     {#if aboutOpen}
         <div class="confirm-backdrop">
             <div class="confirm-modal" role="dialog" aria-modal="true" aria-label="关于">
-                <h3>关于 Clipper</h3>
+                <h3>关于 SnapPaste</h3>
                 <p>版本：v{appVersion}</p>
                 <p>作者：Jiaxin</p>
                 <div class="confirm-actions">

@@ -1,4 +1,4 @@
-# Clipper
+# SnapPaste
 
 一个基于 Rust + Tauri + Svelte 的轻量剪贴板历史工具，专注文本工作流：快速呼出、快速搜索、快速粘贴。
 
