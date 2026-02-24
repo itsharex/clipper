@@ -3,7 +3,7 @@ use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Runtime};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
-use crate::tray;
+use crate::{clipboard, tray};
 
 pub const DEFAULT_SHORTCUT: &str = "Ctrl+Shift+V";
 
@@ -63,6 +63,7 @@ pub fn register_from_settings_or_default<R: Runtime>(app: &AppHandle<R>) -> Resu
 }
 
 pub fn on_shortcut_triggered<R: Runtime>(app: &AppHandle<R>, _shortcut: &Shortcut) {
+    clipboard::capture_target_window();
     if !crate::is_frontend_ready() {
         crate::queue_show_near_cursor_on_ready();
         return;

@@ -1,5 +1,9 @@
 use std::borrow::Cow;
+#[cfg(target_os = "windows")]
+use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(target_os = "windows")]
+use std::sync::atomic::AtomicPtr;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -14,10 +18,13 @@ use tauri::{AppHandle, Emitter, Manager};
 use windows_sys::Win32::Foundation::CloseHandle;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
+    AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
+    PROCESS_QUERY_LIMITED_INFORMATION,
 };
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
+};
 
 use crate::models::ClipboardRecord;
 
@@ -25,6 +32,8 @@ static MONITORING: AtomicBool = AtomicBool::new(false);
 static MONITOR_SESSION_ID: AtomicU64 = AtomicU64::new(0);
 /// 忽略下一次剪贴板变化（用于复制操作时避免重复记录）
 static IGNORE_NEXT_CHANGE: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "windows")]
+static TARGET_HWND: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(ptr::null_mut());
 static LAST_IMAGE_RECORD_MS: AtomicU64 = AtomicU64::new(0);
 static PASTE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 const ENABLE_IMAGE_RECORDING: bool = false;
@@ -34,11 +43,9 @@ const MAX_IMAGE_PIXELS: usize = 2_600_000; // approx <= 1920x1350
 const MAX_IMAGE_DIMENSION: usize = 2200;
 const MAX_ENCODED_IMAGE_BYTES: usize = 6 * 1024 * 1024; // PNG blob cap
 const MIN_IMAGE_RECORD_INTERVAL_MS: u64 = 1200;
-const PASTE_SETTLE_MS_TEXT: u64 = 10;
-const PASTE_SETTLE_MS_IMAGE: u64 = 16;
+const PASTE_SETTLE_MS_TEXT: u64 = 5;
+const PASTE_SETTLE_MS_IMAGE: u64 = 20;
 const PASTE_KEY_STEP_MS: u64 = 2;
-const FOCUS_RELEASE_TIMEOUT_MS: u64 = 80;
-const FOCUS_RELEASE_POLL_MS: u64 = 4;
 #[cfg(target_os = "windows")]
 const EVENT_MONITOR_RETRY_MIN_MS: u64 = 300;
 #[cfg(target_os = "windows")]
@@ -221,17 +228,44 @@ fn with_paste_in_progress<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T,
     result
 }
 
-fn wait_for_window_focus_release(window: &tauri::WebviewWindow, timeout_ms: u64) {
-    let started = now_ms();
-    loop {
-        let focused = window.is_focused().unwrap_or(false);
-        if !focused {
-            return;
+/// 捕获呼出 UI 前的当前前台窗口，用于后续粘贴前恢复焦点。
+#[cfg(target_os = "windows")]
+pub fn capture_target_window() {
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        TARGET_HWND.store(hwnd as *mut _, Ordering::SeqCst);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn capture_target_window() {}
+
+#[cfg(target_os = "windows")]
+fn force_restore_focus(hwnd: isize) -> bool {
+    unsafe {
+        if hwnd == 0 {
+            return false;
         }
-        if now_ms().saturating_sub(started) >= timeout_ms {
-            return;
+
+        if GetForegroundWindow() as isize == hwnd {
+            return true;
         }
-        thread::sleep(Duration::from_millis(FOCUS_RELEASE_POLL_MS));
+
+        let target_hwnd = hwnd as *mut std::ffi::c_void;
+        let target_thread = GetWindowThreadProcessId(target_hwnd, ptr::null_mut());
+        if target_thread == 0 {
+            return false;
+        }
+
+        let current_thread = GetCurrentThreadId();
+        if current_thread == target_thread {
+            return SetForegroundWindow(target_hwnd) != 0;
+        }
+
+        let _ = AttachThreadInput(current_thread, target_thread, 1);
+        let focused = SetForegroundWindow(target_hwnd) != 0;
+        let _ = AttachThreadInput(current_thread, target_thread, 0);
+        focused
     }
 }
 
@@ -579,9 +613,17 @@ pub async fn paste_record_content(app: AppHandle, id: i64) -> Result<(), String>
             set_clipboard_text(&record.content)?;
         }
 
+        #[cfg(target_os = "windows")]
+        let target_hwnd = TARGET_HWND.swap(ptr::null_mut(), Ordering::SeqCst) as isize;
+
         if let Some(window) = app.get_webview_window("main") {
             window.hide().map_err(|e| e.to_string())?;
-            wait_for_window_focus_release(&window, FOCUS_RELEASE_TIMEOUT_MS);
+
+            #[cfg(target_os = "windows")]
+            if target_hwnd != 0 {
+                let _ = force_restore_focus(target_hwnd);
+                thread::sleep(Duration::from_millis(20));
+            }
         }
 
         // 给系统时间切换焦点到原目标窗口（图片略高于文本）
