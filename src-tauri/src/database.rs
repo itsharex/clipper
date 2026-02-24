@@ -1,10 +1,12 @@
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use rusqlite::{Connection, OptionalExtension, Result, params};
 use crate::models::{ClipboardRecord, Settings};
 
 const DB_FILE: &str = "clipper.db";
 pub const MIN_MENU_WIDTH: i32 = 280;
 pub const MIN_MENU_HEIGHT: i32 = 430;
+static DB_CONNECTION: OnceLock<Mutex<Connection>> = OnceLock::new();
 
 #[cfg(target_os = "windows")]
 fn legacy_windows_db_path() -> Option<PathBuf> {
@@ -36,7 +38,7 @@ fn get_db_path() -> PathBuf {
     path
 }
 
-fn get_db_connection() -> Result<Connection, rusqlite::Error> {
+fn open_db_connection() -> Result<Connection, rusqlite::Error> {
     let path = get_db_path();
 
     // 确保目录存在
@@ -56,7 +58,27 @@ fn get_db_connection() -> Result<Connection, rusqlite::Error> {
         }
     }
 
-    Connection::open(path)
+    let conn = Connection::open(path)?;
+    conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+    Ok(conn)
+}
+
+fn get_db_connection() -> Result<&'static Mutex<Connection>, rusqlite::Error> {
+    if let Some(conn) = DB_CONNECTION.get() {
+        return Ok(conn);
+    }
+
+    let conn = open_db_connection()?;
+    let _ = DB_CONNECTION.set(Mutex::new(conn));
+    DB_CONNECTION.get().ok_or_else(|| {
+        rusqlite::Error::InvalidParameterName("failed to initialize database singleton".to_string())
+    })
+}
+
+fn lock_db_connection() -> Result<MutexGuard<'static, Connection>, rusqlite::Error> {
+    let conn = get_db_connection()?;
+    conn.lock()
+        .map_err(|_| rusqlite::Error::InvalidParameterName("database mutex poisoned".to_string()))
 }
 
 fn ensure_settings_columns(conn: &Connection) -> Result<(), rusqlite::Error> {
@@ -213,7 +235,7 @@ fn apply_retention_policy(conn: &Connection, settings: &Settings) -> Result<(), 
 }
 
 pub fn init_database() -> Result<()> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
 
     // 创建剪贴板历史表
     conn.execute(
@@ -266,7 +288,7 @@ pub fn init_database() -> Result<()> {
 }
 
 pub fn get_history(limit: i32, offset: i32) -> Result<Vec<ClipboardRecord>, rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
 
     let mut stmt = conn.prepare(
         "SELECT id, content_type, COALESCE(content, '') as content,
@@ -291,14 +313,13 @@ pub fn get_history(limit: i32, offset: i32) -> Result<Vec<ClipboardRecord>, rusq
             created_at: row.get(7)?,
         })
     })?
-    .filter_map(|r| r.ok())
-    .collect();
+    .collect::<std::result::Result<Vec<_>, _>>()?;
 
     Ok(records)
 }
 
 pub fn search_history(keyword: &str, limit: i32) -> Result<Vec<ClipboardRecord>, rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
     let pattern = format!("%{}%", keyword);
 
     let mut stmt = conn.prepare(
@@ -325,14 +346,13 @@ pub fn search_history(keyword: &str, limit: i32) -> Result<Vec<ClipboardRecord>,
             created_at: row.get(7)?,
         })
     })?
-    .filter_map(|r| r.ok())
-    .collect();
+    .collect::<std::result::Result<Vec<_>, _>>()?;
 
     Ok(records)
 }
 
 pub fn get_favorite_history(limit: i32, offset: i32) -> Result<Vec<ClipboardRecord>, rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
 
     let mut stmt = conn.prepare(
         "SELECT id, content_type, COALESCE(content, '') as content,
@@ -358,14 +378,13 @@ pub fn get_favorite_history(limit: i32, offset: i32) -> Result<Vec<ClipboardReco
             created_at: row.get(7)?,
         })
     })?
-    .filter_map(|r| r.ok())
-    .collect();
+    .collect::<std::result::Result<Vec<_>, _>>()?;
 
     Ok(records)
 }
 
 pub fn get_all_favorite_history() -> Result<Vec<ClipboardRecord>, rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
 
     let mut stmt = conn.prepare(
         "SELECT id, content_type, COALESCE(content, '') as content,
@@ -390,14 +409,13 @@ pub fn get_all_favorite_history() -> Result<Vec<ClipboardRecord>, rusqlite::Erro
             created_at: row.get(7)?,
         })
     })?
-    .filter_map(|r| r.ok())
-    .collect();
+    .collect::<std::result::Result<Vec<_>, _>>()?;
 
     Ok(records)
 }
 
 pub fn search_favorite_history(keyword: &str, limit: i32) -> Result<Vec<ClipboardRecord>, rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
     let pattern = format!("%{}%", keyword);
 
     let mut stmt = conn.prepare(
@@ -425,14 +443,13 @@ pub fn search_favorite_history(keyword: &str, limit: i32) -> Result<Vec<Clipboar
             created_at: row.get(7)?,
         })
     })?
-    .filter_map(|r| r.ok())
-    .collect();
+    .collect::<std::result::Result<Vec<_>, _>>()?;
 
     Ok(records)
 }
 
 pub fn add_record(record: ClipboardRecord) -> Result<i64, rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
 
     // 文本类记录去重：命中则更新时间并复用原记录，保持列表简洁。
     let dedup_target = record.content_type != "image" && !record.content.trim().is_empty();
@@ -518,7 +535,7 @@ pub fn add_record(record: ClipboardRecord) -> Result<i64, rusqlite::Error> {
 }
 
 pub fn get_record_by_id(id: i64) -> Result<Option<ClipboardRecord>, rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
     let mut stmt = conn.prepare(
         "SELECT id, content_type, COALESCE(content, '') as content,
                 image_data, COALESCE(is_favorite, 0) as is_favorite,
@@ -548,17 +565,17 @@ pub fn get_record_by_id(id: i64) -> Result<Option<ClipboardRecord>, rusqlite::Er
 }
 
 pub fn delete_record(id: i64) -> Result<usize, rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
     conn.execute("DELETE FROM clipboard_history WHERE id = ?1", [id])
 }
 
 pub fn clear_history() -> Result<usize, rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
     conn.execute("DELETE FROM clipboard_history", [])
 }
 
 pub fn clear_non_favorite_history() -> Result<usize, rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
     conn.execute(
         "DELETE FROM clipboard_history WHERE COALESCE(is_favorite, 0) = 0",
         [],
@@ -566,7 +583,7 @@ pub fn clear_non_favorite_history() -> Result<usize, rusqlite::Error> {
 }
 
 pub fn clear_favorite_history() -> Result<usize, rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
     conn.execute(
         "DELETE FROM clipboard_history WHERE COALESCE(is_favorite, 0) = 1",
         [],
@@ -574,7 +591,7 @@ pub fn clear_favorite_history() -> Result<usize, rusqlite::Error> {
 }
 
 pub fn set_record_favorite(id: i64, favorite: bool) -> Result<(), rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
     conn.execute(
         "UPDATE clipboard_history SET is_favorite = ?1 WHERE id = ?2",
         params![favorite as i32, id],
@@ -583,7 +600,7 @@ pub fn set_record_favorite(id: i64, favorite: bool) -> Result<(), rusqlite::Erro
 }
 
 pub fn set_record_pinned(id: i64, pinned: bool) -> Result<(), rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
     conn.execute(
         "UPDATE clipboard_history SET is_pinned = ?1 WHERE id = ?2",
         params![pinned as i32, id],
@@ -592,7 +609,7 @@ pub fn set_record_pinned(id: i64, pinned: bool) -> Result<(), rusqlite::Error> {
 }
 
 pub fn favorite_exists(content_type: &str, content: &str) -> Result<bool, rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
     let exists: i32 = conn.query_row(
         "SELECT EXISTS(
             SELECT 1
@@ -609,12 +626,12 @@ pub fn favorite_exists(content_type: &str, content: &str) -> Result<bool, rusqli
 }
 
 pub fn get_settings() -> Result<Settings, rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
     get_settings_from_conn(&conn)
 }
 
 pub fn save_settings(settings: &Settings) -> Result<(), rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
     let settings = sanitize_settings(settings);
 
     conn.execute(
@@ -648,7 +665,7 @@ pub fn save_settings(settings: &Settings) -> Result<(), rusqlite::Error> {
 }
 
 pub fn save_menu_size(width: i32, height: i32) -> Result<(), rusqlite::Error> {
-    let conn = get_db_connection()?;
+    let conn = lock_db_connection()?;
     let width = width.max(MIN_MENU_WIDTH);
     let height = height.max(MIN_MENU_HEIGHT);
 

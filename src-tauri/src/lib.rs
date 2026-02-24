@@ -164,36 +164,22 @@ fn schedule_window_size_persist(width: i32, height: i32) {
         return;
     }
 
+    // 延迟保存：等待 500ms 防抖，确保用户停止调整后再保存
     std::thread::spawn(|| {
-        loop {
-            std::thread::sleep(std::time::Duration::from_millis(320));
-            let elapsed = now_ms().saturating_sub(LAST_WINDOW_RESIZE_MS.load(Ordering::SeqCst));
-            if elapsed < 320 {
-                continue;
-            }
+        std::thread::sleep(std::time::Duration::from_millis(500));
 
-            let current = pending_window_size()
-                .lock()
-                .ok()
-                .and_then(|mut slot| slot.take());
+        // 先从 Slot 里把数据拿走（锁定并取出）
+        let current = pending_window_size()
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take());
 
-            if let Some((width, height)) = current {
-                let _ = database::save_menu_size(width, height);
-            }
+        // 拿走数据后立即释放标志位，这样如果接下来有新的 Resize，它能立刻启动新线程
+        WINDOW_SIZE_SAVE_PENDING.store(false, Ordering::SeqCst);
 
-            WINDOW_SIZE_SAVE_PENDING.store(false, Ordering::SeqCst);
-            let need_restart = pending_window_size()
-                .lock()
-                .map(|slot| slot.is_some())
-                .unwrap_or(false);
-            if need_restart
-                && WINDOW_SIZE_SAVE_PENDING
-                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_ok()
-            {
-                continue;
-            }
-            break;
+        // 执行耗时的数据库 IO
+        if let Some((width, height)) = current {
+            let _ = database::save_menu_size(width, height);
         }
     });
 }
