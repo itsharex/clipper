@@ -2,6 +2,13 @@
 
 A lightweight clipboard history tool built with Rust + Tauri + Svelte, quick access, fast search, and instant paste.
 
+
+<p align="left">
+  <img src="image.png" width="30%" />
+  <img src="image-2.png" width="30%" />
+  <img src="image-1.png" width="30%" />
+</p>
+
 ## Features
 
 - Global hotkey support (default `Ctrl+Shift+V`)

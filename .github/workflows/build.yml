@@ -8,12 +8,14 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  # 使用 SHA 作为分组。如果同一个提交触发了多次运行（分支+标签），后来的会取消掉先来的。
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   frontend-check:
     runs-on: ubuntu-latest
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}
-      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node.js
@@ -26,9 +28,6 @@ jobs:
 
   rust-check:
     runs-on: ubuntu-latest
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}
-      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
       - name: Setup Rust
